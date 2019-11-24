@@ -12,6 +12,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.animation.OvershootInterpolator
+import com.ramotion.fluidslider.FluidSlider.Size.LARGE
 import com.ramotion.fluidslider.FluidSlider.Size.NORMAL
 import com.ramotion.fluidslider.FluidSlider.Size.SMALL
 import kotlin.math.*
@@ -25,14 +26,20 @@ class FluidSlider @JvmOverloads constructor(
 
     /**
      * Sizes that can be used.
+     * @see LARGE
      * @see NORMAL
      * @see SMALL
      */
     enum class Size(val value: Int) {
         /**
-         * Default size - 56dp.
+         * Large size - 56dp.
          */
-        NORMAL(56),
+        LARGE(56),
+
+        /**
+         * Default size - 50dp.
+         */
+        NORMAL(44),
 
         /**
          * Small size - 40dp.
@@ -43,7 +50,8 @@ class FluidSlider @JvmOverloads constructor(
     private companion object {
         const val BAR_CORNER_RADIUS = 6
         const val BAR_VERTICAL_OFFSET = 1.5f
-        const val BAR_INNER_HORIZONTAL_OFFSET = 0
+        const val BAR_INNER_HORIZONTAL_OFFSET = 1
+        const val PADDING = 6
 
         const val SLIDER_WIDTH = 4
         const val SLIDER_HEIGHT = 1 + BAR_VERTICAL_OFFSET
@@ -101,6 +109,7 @@ class FluidSlider @JvmOverloads constructor(
     private val pathMetaball = Path()
 
     private val paintBar: Paint
+    private val paintBall: Paint
     private val paintLabel: Paint
     private val paintText: Paint
 
@@ -135,6 +144,7 @@ class FluidSlider @JvmOverloads constructor(
         get() = paintBar.color
         set(value) {
             paintBar.color = value
+            paintBall.color = value
         }
 
     /**
@@ -280,8 +290,11 @@ class FluidSlider @JvmOverloads constructor(
             outlineProvider = OutlineProvider()
         }
 
+        paintBall = Paint(Paint.ANTI_ALIAS_FLAG)
+        paintBall.style = Paint.Style.FILL
         paintBar = Paint(Paint.ANTI_ALIAS_FLAG)
         paintBar.style = Paint.Style.FILL
+        paintBar.setShadowLayer(3F, 3F, 5F, 0x34000000)
 
         paintLabel = Paint(Paint.ANTI_ALIAS_FLAG)
         paintLabel.style = Paint.Style.FILL
@@ -305,8 +318,12 @@ class FluidSlider @JvmOverloads constructor(
                 a.getString(R.styleable.FluidSlider_start_text)?.also { startText = it }
                 a.getString(R.styleable.FluidSlider_end_text)?.also { endText = it }
 
-                val defaultBarHeight = if (a.getInteger(R.styleable.FluidSlider_size, 1) == 1) Size.NORMAL.value else Size.SMALL.value
-                barHeight = defaultBarHeight * density
+                val defaultBarHeight =  when(a.getInteger(R.styleable.FluidSlider_size, 1)) {
+                    0 -> Size.SMALL.value
+                    1 -> Size.NORMAL.value
+                    else -> Size.LARGE.value
+                }
+                barHeight = defaultBarHeight * density - PADDING
             } finally {
                 a.recycle()
             }
@@ -314,11 +331,11 @@ class FluidSlider @JvmOverloads constructor(
             colorBar = COLOR_BAR
             colorBubble = COLOR_LABEL
             textSize = TEXT_SIZE * density
-            barHeight = size.value * density
+            barHeight = size.value * density - PADDING
         }
 
-        desiredWidth = (barHeight * SLIDER_WIDTH).toInt()
-        desiredHeight = (barHeight * SLIDER_HEIGHT).toInt()
+        desiredWidth = ((barHeight + PADDING) * SLIDER_WIDTH).toInt()
+        desiredHeight = ((barHeight + PADDING) * SLIDER_HEIGHT).toInt()
 
         topCircleDiameter = barHeight * TOP_CIRCLE_DIAMETER
         bottomCircleDiameter = barHeight * BOTTOM_CIRCLE_DIAMETER
@@ -328,7 +345,7 @@ class FluidSlider @JvmOverloads constructor(
         metaballMaxDistance = barHeight * METABALL_MAX_DISTANCE
         metaballRiseDistance = barHeight * METABALL_RISE_DISTANCE
 
-        barVerticalOffset = barHeight * BAR_VERTICAL_OFFSET
+        barVerticalOffset = barHeight * BAR_VERTICAL_OFFSET + PADDING
         barCornerRadius = BAR_CORNER_RADIUS * density
         barInnerOffset = BAR_INNER_HORIZONTAL_OFFSET * density
         textOffset = TEXT_OFFSET * density
@@ -374,16 +391,17 @@ class FluidSlider @JvmOverloads constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
 
-        val width = w.toFloat()
-        rectBar.set(0f, barVerticalOffset, width, barVerticalOffset + barHeight)
+        val width = w.toFloat() - PADDING
+        val start = PADDING.toFloat()
+        rectBar.set(start, barVerticalOffset, width, barVerticalOffset + barHeight)
         rectTopCircle.set(0f, barVerticalOffset, topCircleDiameter, barVerticalOffset + topCircleDiameter)
         rectBottomCircle.set(0f, barVerticalOffset, bottomCircleDiameter, barVerticalOffset + bottomCircleDiameter)
-        rectTouch.set(0f, barVerticalOffset, touchRectDiameter, barVerticalOffset + touchRectDiameter)
+        rectTouch.set(start, barVerticalOffset, touchRectDiameter - PADDING, barVerticalOffset + touchRectDiameter)
 
         val vOffset = barVerticalOffset + (topCircleDiameter - labelRectDiameter) / 2f
         rectLabel.set(0f, vOffset, labelRectDiameter, vOffset + labelRectDiameter)
 
-        maxMovement = width - touchRectDiameter - barInnerOffset * 2
+        maxMovement = width - PADDING - touchRectDiameter - barInnerOffset * 2
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -396,10 +414,10 @@ class FluidSlider @JvmOverloads constructor(
         endText?.let { drawText(canvas, paintText, it, Paint.Align.RIGHT, colorBarText, textOffset, rectBar, rectText) }
 
         // Draw metaball
-        val x = barInnerOffset + touchRectDiameter / 2 + maxMovement * position
+        val x = barInnerOffset + touchRectDiameter / 2 + maxMovement * position + PADDING
         offsetRectToPosition(x, rectTouch, rectTopCircle, rectBottomCircle, rectLabel)
 
-        drawMetaball(canvas, paintBar, pathMetaball, rectBottomCircle, rectTopCircle, rectBar.top)
+        drawMetaball(canvas, paintBall, pathMetaball, rectBottomCircle, rectTopCircle, rectBar.top)
 
         // Draw label and text
         canvas.drawOval(rectLabel, paintLabel)
@@ -560,9 +578,15 @@ class FluidSlider @JvmOverloads constructor(
             close()
         }
 
+        //val roundPath = Path()
+        //roundPath.addRoundRect(rectBar, barCornerRadius, barCornerRadius, Path.Direction.CCW)
+
         with(canvas) {
+            save()
+            clipRect(rectBar.left, 0F, rectBar.right, rectBar.bottom)
             drawPath(path, paint)
             drawOval(circle2, paint)
+            restore()
         }
     }
 
@@ -573,7 +597,7 @@ class FluidSlider @JvmOverloads constructor(
         paint.textAlign = align
         paint.getTextBounds(text, 0, text.length, textRect)
         val x = when (align) {
-            Paint.Align.LEFT -> offset
+            Paint.Align.LEFT -> offset + PADDING
             Paint.Align.CENTER -> holderRect.centerX()
             Paint.Align.RIGHT -> holderRect.right - offset
         }
