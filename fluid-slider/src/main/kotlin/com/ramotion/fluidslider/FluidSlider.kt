@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Parcel
 import android.os.Parcelable
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -99,6 +100,8 @@ class FluidSlider @JvmOverloads constructor(
     private val barVerticalOffset: Float
     private val barCornerRadius: Float
     private val barInnerOffset: Float
+    private var barRoundLeftX = 0f
+    private var barRoundRightX = 0f
 
     private val rectBar = RectF()
     private val rectTopCircle = RectF()
@@ -107,6 +110,7 @@ class FluidSlider @JvmOverloads constructor(
     private val rectLabel = RectF()
     private val rectText = Rect()
     private val pathMetaball = Path()
+    private val pathRect = Path()
 
     private val paintBar: Paint
     private val paintBall: Paint
@@ -398,17 +402,20 @@ class FluidSlider @JvmOverloads constructor(
         rectBottomCircle.set(0f, barVerticalOffset, bottomCircleDiameter, barVerticalOffset + bottomCircleDiameter)
         rectTouch.set(start, barVerticalOffset, touchRectDiameter - PADDING, barVerticalOffset + touchRectDiameter)
 
+        pathRect.addRoundRect(rectBar, barCornerRadius, barCornerRadius, Path.Direction.CCW)
+
         val vOffset = barVerticalOffset + (topCircleDiameter - labelRectDiameter) / 2f
         rectLabel.set(0f, vOffset, labelRectDiameter, vOffset + labelRectDiameter)
 
         maxMovement = width - PADDING - touchRectDiameter - barInnerOffset * 2
+        calculateCorners(pathRect)
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
         // Draw slider bar and text
-        canvas.drawRoundRect(rectBar, barCornerRadius, barCornerRadius, paintBar)
+        canvas.drawPath(pathRect, paintBar)
 
         startText?.let { drawText(canvas, paintText, it, Paint.Align.LEFT, colorBarText, textOffset, rectBar, rectText) }
         endText?.let { drawText(canvas, paintText, it, Paint.Align.RIGHT, colorBarText, textOffset, rectBar, rectText) }
@@ -424,6 +431,38 @@ class FluidSlider @JvmOverloads constructor(
 
         val text = bubbleText ?: (position * 100).toInt().toString()
         drawText(canvas, paintText, text, Paint.Align.CENTER, colorBubbleText, 0f, rectLabel, rectText)
+    }
+
+    fun calculateCorners(path : Path) {
+        val cornerWeight = .030f * BAR_CORNER_RADIUS
+        val pathMeasure = PathMeasure(path, false)
+        val coordinates = FloatArray(2)
+        var foundStart = false
+
+        pathMeasure.getPosTan(0f, null, coordinates)
+        var lastX = coordinates[0]
+        var lastY = coordinates[1]
+
+        for (i in 1..pathMeasure.length.toInt()) {
+            pathMeasure.getPosTan(i.toFloat(), coordinates, null)
+            if (foundStart) {
+                if (lastY != coordinates[1]) {
+                    barRoundRightX = lastX * (1 - cornerWeight) + rectBar.right * cornerWeight
+                    break
+                } else {
+                    lastX = coordinates[0]
+                    lastY = coordinates[1]
+                }
+            } else {
+                if (lastY == coordinates[1]) {
+                    barRoundLeftX = lastX * (1 - cornerWeight) + rectBar.left * cornerWeight
+                    foundStart = true
+                } else {
+                    lastX = coordinates[0]
+                    lastY = coordinates[1]
+                }
+            }
+        }
     }
 
     override fun performClick(): Boolean {
@@ -563,8 +602,8 @@ class FluidSlider @JvmOverloads constructor(
 
         // move bottom point to bar top border
         val yOffset = (abs(topBorder - p1a[1]) * riseRatio) - 1
-        val fp1a = p1a.let { l -> listOf(l[0], l[1] - yOffset) }
-        val fp1b = p1b.let { l -> listOf(l[0], l[1] - yOffset) }
+        val fp1a = p1a.let { l -> listOf(min(barRoundRightX, l[0]), l[1] - yOffset) }
+        val fp1b = p1b.let { l -> listOf(max(barRoundLeftX, l[0]), l[1] - yOffset) }
 
         with(path) {
             reset()
@@ -577,9 +616,6 @@ class FluidSlider @JvmOverloads constructor(
             lineTo(fp1b[0], fp1b[1] + cornerRadius)
             close()
         }
-
-        //val roundPath = Path()
-        //roundPath.addRoundRect(rectBar, barCornerRadius, barCornerRadius, Path.Direction.CCW)
 
         with(canvas) {
             save()
