@@ -8,14 +8,12 @@ import android.os.Build
 import android.os.Parcel
 import android.os.Parcelable
 import android.util.AttributeSet
-import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.animation.OvershootInterpolator
-import com.ramotion.fluidslider.FluidSlider.Size.LARGE
-import com.ramotion.fluidslider.FluidSlider.Size.NORMAL
-import com.ramotion.fluidslider.FluidSlider.Size.SMALL
+import com.ramotion.fluidslider.FluidSlider.Size.*
 import kotlin.math.*
 
 
@@ -52,7 +50,8 @@ class FluidSlider @JvmOverloads constructor(
         const val BAR_CORNER_RADIUS = 6
         const val BAR_VERTICAL_OFFSET = 1.5f
         const val BAR_INNER_HORIZONTAL_OFFSET = 1
-        const val PADDING = 6
+        const val SHADOW_X = 1
+        const val SHADOW_Y = 2
 
         const val SLIDER_WIDTH = 4
         const val SLIDER_HEIGHT = 1 + BAR_VERTICAL_OFFSET
@@ -100,6 +99,8 @@ class FluidSlider @JvmOverloads constructor(
     private val barVerticalOffset: Float
     private val barCornerRadius: Float
     private val barInnerOffset: Float
+    private val paddingX: Float
+    private val paddingY: Float
     private var barRoundLeftX = 0f
     private var barRoundRightX = 0f
 
@@ -298,7 +299,6 @@ class FluidSlider @JvmOverloads constructor(
         paintBall.style = Paint.Style.FILL
         paintBar = Paint(Paint.ANTI_ALIAS_FLAG)
         paintBar.style = Paint.Style.FILL
-        paintBar.setShadowLayer(3F, 3F, 5F, 0x34000000)
 
         paintLabel = Paint(Paint.ANTI_ALIAS_FLAG)
         paintLabel.style = Paint.Style.FILL
@@ -306,6 +306,12 @@ class FluidSlider @JvmOverloads constructor(
         paintText = Paint(Paint.ANTI_ALIAS_FLAG)
 
         val density = context.resources.displayMetrics.density
+        val shadowX = SHADOW_X * density
+        val shadowY = SHADOW_Y * density
+        // Larger values of 'radius' for the shadow will require numbers larger than '2'
+        paddingX = (SHADOW_X + 2) * density
+        paddingY = (SHADOW_Y + 2) * density
+        paintBar.setShadowLayer(3F, shadowX, shadowY, 0x40000000)
 
         if (attrs != null) {
             val a = context.theme.obtainStyledAttributes(attrs, R.styleable.FluidSlider, defStyleAttr, 0)
@@ -322,12 +328,12 @@ class FluidSlider @JvmOverloads constructor(
                 a.getString(R.styleable.FluidSlider_start_text)?.also { startText = it }
                 a.getString(R.styleable.FluidSlider_end_text)?.also { endText = it }
 
-                val defaultBarHeight =  when(a.getInteger(R.styleable.FluidSlider_size, 1)) {
+                val defaultBarHeight = when (a.getInteger(R.styleable.FluidSlider_size, 1)) {
                     0 -> Size.SMALL.value
                     1 -> Size.NORMAL.value
                     else -> Size.LARGE.value
                 }
-                barHeight = defaultBarHeight * density - PADDING
+                barHeight = defaultBarHeight * density
             } finally {
                 a.recycle()
             }
@@ -335,11 +341,11 @@ class FluidSlider @JvmOverloads constructor(
             colorBar = COLOR_BAR
             colorBubble = COLOR_LABEL
             textSize = TEXT_SIZE * density
-            barHeight = size.value * density - PADDING
+            barHeight = size.value * density
         }
 
-        desiredWidth = ((barHeight + PADDING) * SLIDER_WIDTH).toInt()
-        desiredHeight = ((barHeight + PADDING) * SLIDER_HEIGHT).toInt()
+        desiredWidth = ((barHeight + paddingX) * SLIDER_WIDTH).toInt()
+        desiredHeight = ((barHeight) * SLIDER_HEIGHT).toInt()
 
         topCircleDiameter = barHeight * TOP_CIRCLE_DIAMETER
         bottomCircleDiameter = barHeight * BOTTOM_CIRCLE_DIAMETER
@@ -349,10 +355,21 @@ class FluidSlider @JvmOverloads constructor(
         metaballMaxDistance = barHeight * METABALL_MAX_DISTANCE
         metaballRiseDistance = barHeight * METABALL_RISE_DISTANCE
 
-        barVerticalOffset = barHeight * BAR_VERTICAL_OFFSET + PADDING
+        barVerticalOffset = barHeight * BAR_VERTICAL_OFFSET
         barCornerRadius = BAR_CORNER_RADIUS * density
         barInnerOffset = BAR_INNER_HORIZONTAL_OFFSET * density
         textOffset = TEXT_OFFSET * density
+
+        post {
+            // To compensate for the padding
+            val layoutParams = (layoutParams as ViewGroup.MarginLayoutParams)
+            val roundedShadowX = round(paddingX).toInt()
+            val roundedShadowY = round(paddingY).toInt()
+            layoutParams.leftMargin -= roundedShadowX
+            layoutParams.rightMargin -= roundedShadowX
+            layoutParams.bottomMargin -= roundedShadowY
+            setLayoutParams(layoutParams)
+        }
     }
 
     /**
@@ -388,26 +405,25 @@ class FluidSlider @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = resolveSizeAndState(desiredWidth, widthMeasureSpec, 0)
-        val h = resolveSizeAndState(desiredHeight, heightMeasureSpec, 0)
+        val h = resolveSizeAndState(desiredHeight + round(paddingY).toInt(), heightMeasureSpec, 0)
         setMeasuredDimension(w, h)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
 
-        val width = w.toFloat() - PADDING
-        val start = PADDING.toFloat()
-        rectBar.set(start, barVerticalOffset, width, barVerticalOffset + barHeight)
+        val width = w.toFloat() - paddingX
+        rectBar.set(paddingX, barVerticalOffset, width, barVerticalOffset + barHeight)
         rectTopCircle.set(0f, barVerticalOffset, topCircleDiameter, barVerticalOffset + topCircleDiameter)
         rectBottomCircle.set(0f, barVerticalOffset, bottomCircleDiameter, barVerticalOffset + bottomCircleDiameter)
-        rectTouch.set(start, barVerticalOffset, touchRectDiameter - PADDING, barVerticalOffset + touchRectDiameter)
+        rectTouch.set(paddingX, barVerticalOffset, touchRectDiameter - paddingX, barVerticalOffset + touchRectDiameter)
 
         pathRect.addRoundRect(rectBar, barCornerRadius, barCornerRadius, Path.Direction.CCW)
 
         val vOffset = barVerticalOffset + (topCircleDiameter - labelRectDiameter) / 2f
         rectLabel.set(0f, vOffset, labelRectDiameter, vOffset + labelRectDiameter)
 
-        maxMovement = width - PADDING - touchRectDiameter - barInnerOffset * 2
+        maxMovement = width - paddingX - touchRectDiameter - barInnerOffset * 2
         calculateCorners(pathRect)
     }
 
@@ -421,7 +437,7 @@ class FluidSlider @JvmOverloads constructor(
         endText?.let { drawText(canvas, paintText, it, Paint.Align.RIGHT, colorBarText, textOffset, rectBar, rectText) }
 
         // Draw metaball
-        val x = barInnerOffset + touchRectDiameter / 2 + maxMovement * position + PADDING
+        val x = barInnerOffset + touchRectDiameter / 2 + maxMovement * position + paddingX
         offsetRectToPosition(x, rectTouch, rectTopCircle, rectBottomCircle, rectLabel)
 
         drawMetaball(canvas, paintBall, pathMetaball, rectBottomCircle, rectTopCircle, rectBar.top)
@@ -433,7 +449,7 @@ class FluidSlider @JvmOverloads constructor(
         drawText(canvas, paintText, text, Paint.Align.CENTER, colorBubbleText, 0f, rectLabel, rectText)
     }
 
-    fun calculateCorners(path : Path) {
+    fun calculateCorners(path: Path) {
         val cornerWeight = .030f * BAR_CORNER_RADIUS
         val pathMeasure = PathMeasure(path, false)
         val coordinates = FloatArray(2)
@@ -447,7 +463,8 @@ class FluidSlider @JvmOverloads constructor(
             pathMeasure.getPosTan(i.toFloat(), coordinates, null)
             if (foundStart) {
                 if (lastY != coordinates[1]) {
-                    barRoundRightX = lastX * (1 - cornerWeight) + rectBar.right * cornerWeight
+                    // Adding paddingX because there is a negative margin, and Path does not know about it
+                    barRoundRightX = (lastX + paddingX) * (1 - cornerWeight) + rectBar.right * cornerWeight
                     break
                 } else {
                     lastX = coordinates[0]
@@ -633,7 +650,7 @@ class FluidSlider @JvmOverloads constructor(
         paint.textAlign = align
         paint.getTextBounds(text, 0, text.length, textRect)
         val x = when (align) {
-            Paint.Align.LEFT -> offset + PADDING
+            Paint.Align.LEFT -> offset + paddingX
             Paint.Align.CENTER -> holderRect.centerX()
             Paint.Align.RIGHT -> holderRect.right - offset
         }
